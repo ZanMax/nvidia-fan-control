@@ -1,4 +1,5 @@
 # Nvidia Fan Control
+forked from ZanMax/nvidia-fan-control and added multiple GPU and Multiple fan controller support.
 
 A lightweight Linux utility for monitoring GPU temperatures and dynamically controlling NVIDIA GPU fan speeds using NVML.
 
