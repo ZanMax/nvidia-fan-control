@@ -54,9 +54,9 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable nvidia_fan_control.service
-sudo systemctl start nvidia_fan_control.service
-sudo systemctl status nvidia_fan_control.service
+sudo systemctl enable nvidia-fan-control.service
+sudo systemctl start nvidia-fan-control.service
+sudo systemctl status nvidia-fan-control.service
 ```
 
 ### Check Logs
