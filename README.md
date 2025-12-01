@@ -15,16 +15,16 @@ go build -o nvidia-fan-control
 edit the file `config.json` with the following structure
 ```
 {
-    "time_to_update": 5,
+    "time_to_update": 3,
     "temperature_ranges": [
       { "min_temperature": 0, "max_temperature": 45, "fan_speed": 0, "hysteresis": 0 },
-      { "min_temperature": 45, "max_temperature": 50, "fan_speed": 40, "hysteresis": 5 },
-      { "min_temperature": 50, "max_temperature": 60, "fan_speed": 50, "hysteresis": 3 },
-	  { "min_temperature": 60, "max_temperature": 70, "fan_speed": 60, "hysteresis": 3 },
-      { "min_temperature": 70, "max_temperature": 80, "fan_speed": 70, "hysteresis": 3 },
-      { "min_temperature": 80, "max_temperature": 85, "fan_speed": 80, "hysteresis": 3 },
-      { "min_temperature": 85, "max_temperature": 95, "fan_speed": 90, "hysteresis": 3 },
-      { "min_temperature": 95, "max_temperature": 200, "fan_speed": 100, "hysteresis": 0 }
+      { "min_temperature": 45, "max_temperature": 50, "fan_speed": 40, "hysteresis": 4 },
+      { "min_temperature": 50, "max_temperature": 60, "fan_speed": 55, "hysteresis": 3 },
+	  { "min_temperature": 60, "max_temperature": 70, "fan_speed": 70, "hysteresis": 3 },
+      { "min_temperature": 70, "max_temperature": 80, "fan_speed": 80, "hysteresis": 3 },
+      { "min_temperature": 80, "max_temperature": 85, "fan_speed": 90, "hysteresis": 3 },
+      { "min_temperature": 85, "max_temperature": 95, "fan_speed": 95, "hysteresis": 3 },
+      { "min_temperature": 95, "max_temperature": 999, "fan_speed": 100, "hysteresis": 0 }
     ]
   }
 ```

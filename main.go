@@ -164,6 +164,7 @@ func runMonitoringLoop(config Config, count int, fanCounts []int, prevFanSpeeds 
 				continue
 			}
 			tempInt := int(temp)
+			updatedFans := []int{}
 			for fanIdx := 0; fanIdx < fanCounts[i]; fanIdx++ {
 				newFanSpeed := getFanSpeedForTemperature(tempInt, prevFanSpeeds[i][fanIdx], config.TemperatureRanges)
 				if newFanSpeed != prevFanSpeeds[i][fanIdx] {
@@ -175,9 +176,17 @@ func runMonitoringLoop(config Config, count int, fanCounts []int, prevFanSpeeds 
 						log.Printf("ERROR: Failed to set speed for GPU %d Fan %d to %d%%: %v", i, fanIdx, newFanSpeed, nvml.ErrorString(ret))
 						continue
 					}
-					log.Printf("INFO: Updated GPU %d Fan %d: Temp=%d°C, PrevSpeed=%d%%, NewSpeed=%d%%", i, fanIdx, tempInt, prevFanSpeeds[i][fanIdx], newFanSpeed)
+					updatedFans = append(updatedFans, fanIdx)
 					prevFanSpeeds[i][fanIdx] = newFanSpeed
 				}
+			}
+			if len(updatedFans) > 0 {
+				currentSpeeds := make([]int, len(updatedFans))
+				for idx, fanIdx := range updatedFans {
+					currentSpeeds[idx] = prevFanSpeeds[i][fanIdx]
+				}
+				log.Printf("INFO: Updated GPU %d Fans %v: Temp=%d°C, NewSpeeds=%v%%", 
+					i, updatedFans, tempInt, currentSpeeds)
 			}
 		}
 	}
