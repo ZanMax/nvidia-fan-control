@@ -61,5 +61,5 @@ sudo systemctl status nvidia_fan_control.service
 
 ### Check Logs
 ```bash
-sudo tail -f /var/log/nvidia_fan_control.log
+tail -f /var/log/nvidia_fan_control.log
 ```
