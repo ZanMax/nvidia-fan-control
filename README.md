@@ -31,7 +31,7 @@ edit the file `config.json` with the following structure
 
 ## Service
 ```bash
-sudo nano /etc/systemd/system/nvidia-fan-control.service
+sudo vi /etc/systemd/system/nvidia-fan-control.service
 ```
 update WorkingDirectory and set the path to your config file
 ```
