@@ -11,25 +11,15 @@ import (
 )
 
 type Config struct {
-	TimeToUpdate      int                `json:"time_to_update"`
-	TemperatureRanges []TemperatureRange `json:"temperature_ranges"`
+	TimeToUpdate	int		`json:"time_to_update"`
+	TemperatureRanges	[]TemperatureRange	`json:"temperature_ranges"`
 }
 
 type TemperatureRange struct {
-	MinTemperature int `json:"min_temperature"`
-	MaxTemperature int `json:"max_temperature"`
-	FanSpeed       int `json:"fan_speed"`
-	Hysteresis     int `json:"hysteresis"`
-}
-
-func loadConfig(file string) (Config, error) {
-	var config Config
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return config, err
-	}
-	err = json.Unmarshal(data, &config)
-	return config, err
+	MinTemperature	int	`json:"min_temperature"`
+	MaxTemperature	int	`json:"max_temperature"`
+	FanSpeed	int	`json:"fan_speed"`
+	Hysteresis	int	`json:"hysteresis"`
 }
 
 func abs(x int) int {
@@ -62,7 +52,7 @@ func getFanSpeedForTemperature(temp int, prevSpeed int, ranges []TemperatureRang
 			}
 		}
 
-		if prevRange.FanSpeed == -1 {
+		if prevRange.FanSpeed == 0 && prevRange.MinTemperature == 0 && prevRange.Hysteresis == 0 {
 			return idealSpeed
 		}
 
@@ -86,115 +76,88 @@ func setupLogging(logFilePath string) (*os.File, error) {
 	return logFile, nil
 }
 
-func loadConfiguration(configPath string) (Config, error) {
-	config, err := loadConfig(configPath)
+func loadConfig(file string) (Config, error) {
+	var config Config
+	data, err := os.ReadFile(file)
 	if err != nil {
-		return config, fmt.Errorf("failed to load config %s: %w", configPath, err)
+		return config, err
 	}
+	err = json.Unmarshal(data, &config)
 
 	if config.TimeToUpdate <= 0 {
 		log.Printf("WARN: time_to_update (%d) is invalid, defaulting to 5 seconds.", config.TimeToUpdate)
 		config.TimeToUpdate = 5
 	}
 	log.Println("INFO: Configuration loaded.")
-	return config, nil
+	return config, err
 }
 
-func initializeNVML() (cleanupFunc func(), err error) {
-	ret := nvml.Init()
-	if ret != nvml.SUCCESS {
+func initNVML() (func(), error) {
+	if ret := nvml.Init(); ret != nvml.SUCCESS {
 		return nil, fmt.Errorf("unable to initialize NVML: %v", nvml.ErrorString(ret))
 	}
-
-	cleanupFunc = func() {
-		log.Println("INFO: Shutting down NVML...")
-		ret := nvml.Shutdown()
-		if ret != nvml.SUCCESS {
+	return func() {
+		if ret := nvml.Shutdown(); ret != nvml.SUCCESS {
 			log.Printf("ERROR: Unable to shutdown NVML cleanly: %v", nvml.ErrorString(ret))
-		} else {
-			log.Println("INFO: NVML Shutdown complete.")
 		}
-	}
-
-	return cleanupFunc, nil
+	}, nil
 }
 
-func initializeDevices() (count int, fanCounts []int, prevTemps []int, prevFanSpeeds [][]int, err error) {
+func initDevices() (int, []int, [][]int, error) {
 	count, ret := nvml.DeviceGetCount()
 	if ret != nvml.SUCCESS {
-		return 0, nil, nil, nil, fmt.Errorf("unable to get NVIDIA device count: %v", nvml.ErrorString(ret))
+		return 0, nil, nil, fmt.Errorf("unable to get NVIDIA device count: %v", nvml.ErrorString(ret))
 	}
 	if count == 0 {
-		return 0, nil, nil, nil, fmt.Errorf("no NVIDIA devices found")
+		return 0, nil, nil, fmt.Errorf("no NVIDIA devices found")
 	}
 	log.Printf("INFO: Found %d NVIDIA device(s).", count)
 
-	fanCounts = make([]int, count)
-	prevTemps = make([]int, count)
-	prevFanSpeeds = make([][]int, count)
+	fanCounts := make([]int, count)
+	prevFanSpeeds := make([][]int, count)
 	initializedDevices := 0
 
 	for i := 0; i < count; i++ {
 		device, ret := nvml.DeviceGetHandleByIndex(i)
 		if ret != nvml.SUCCESS {
-			log.Printf("WARN: Unable to get handle for device %d: %v. Skipping device.", i, nvml.ErrorString(ret))
-			fanCounts[i] = 0
+			log.Printf("WARN: Unable to get handle for device %d: %v. Skipping.", i, nvml.ErrorString(ret))
 			continue
 		}
 
-		var numFansInt int
-		numFansInt, ret = nvml.DeviceGetNumFans(device)
-		if ret != nvml.SUCCESS {
-			log.Printf("WARN: Unable to get fan count for device %d: %v. Assuming 0 fans or fan control not supported.", i, nvml.ErrorString(ret))
-			fanCounts[i] = 0
+		numFans, ret := nvml.DeviceGetNumFans(device)
+		if ret != nvml.SUCCESS || numFans <= 0 {
+			log.Printf("INFO: Device %d reports 0 controllable fans or control not supported. Skipping.", i)
 			continue
 		}
-		fanCounts[i] = numFansInt
+		fanCounts[i] = numFans
+		prevFanSpeeds[i] = make([]int, numFans)
 
-		if fanCounts[i] <= 0 {
-			log.Printf("INFO: Device %d reports %d controllable fans. Skipping fan initialization.", i, fanCounts[i])
-			continue
-		}
+		temp, _ := nvml.DeviceGetTemperature(device, nvml.TEMPERATURE_GPU)
 
-		log.Printf("INFO: Device %d has %d controllable fan(s). Initializing state.", i, fanCounts[i])
-		prevFanSpeeds[i] = make([]int, fanCounts[i])
-
-		temp, ret := nvml.DeviceGetTemperature(device, nvml.TEMPERATURE_GPU)
-		if ret == nvml.SUCCESS {
-			prevTemps[i] = int(temp)
-		} else {
-			log.Printf("WARN: Failed to get initial temperature for device %d: %v. Using 0.", i, nvml.ErrorString(ret))
-			prevTemps[i] = 0
-		}
-
-		for fanIdx := 0; fanIdx < fanCounts[i]; fanIdx++ {
+		for fanIdx := 0; fanIdx < numFans; fanIdx++ {
 			speed, ret := nvml.DeviceGetFanSpeed_v2(device, fanIdx)
-			if ret == nvml.SUCCESS {
-				prevFanSpeeds[i][fanIdx] = int(speed)
-			} else {
+			if ret != nvml.SUCCESS {
 				speedLegacy, retLegacy := nvml.DeviceGetFanSpeed(device)
 				if retLegacy == nvml.SUCCESS && fanIdx == 0 {
-					log.Printf("WARN: Using legacy DeviceGetFanSpeed for initial speed for device %d Fan %d.", i, fanIdx)
-					prevFanSpeeds[i][fanIdx] = int(speedLegacy)
+					speed = speedLegacy
 				} else {
-					log.Printf("WARN: Failed to get initial speed for device %d Fan %d using v2 (%v) or legacy (%v). Using 0.", i, fanIdx, nvml.ErrorString(ret), nvml.ErrorString(retLegacy))
-					prevFanSpeeds[i][fanIdx] = 0
+					log.Printf("WARN: Failed to get initial speed for device %d Fan %d. Using 0.", i, fanIdx)
+					speed = 0
 				}
 			}
+			prevFanSpeeds[i][fanIdx] = int(speed)
 		}
-		log.Printf("INFO: Initial state for device %d: Temp=%d°C, Fan Speeds=%v%%", i, prevTemps[i], prevFanSpeeds[i])
+		log.Printf("INFO: Initial state for device %d: Temp=%d°C, Fan Speeds=%v%%", i, int(temp), prevFanSpeeds[i])
 		initializedDevices++
 	}
 
 	if initializedDevices == 0 && count > 0 {
-		return count, fanCounts, prevTemps, prevFanSpeeds, fmt.Errorf("found %d devices, but failed to initialize any for monitoring/control", count)
+		return count, fanCounts, prevFanSpeeds, fmt.Errorf("found %d devices, but failed to initialize any for fan control", count)
 	}
-
-	log.Printf("INFO: Device initialization complete. Monitoring %d devices.", initializedDevices)
-	return count, fanCounts, prevTemps, prevFanSpeeds, nil
+	return count, fanCounts, prevFanSpeeds, nil
 }
 
-func runMonitoringLoop(config Config, count int, fanCounts []int, prevTemps []int, prevFanSpeeds [][]int) {
+func runMonitoringLoop(config Config, count int, fanCounts []int, prevFanSpeeds [][]int) {
 	log.Println("INFO: Starting monitoring loop...")
 	ticker := time.NewTicker(time.Duration(config.TimeToUpdate) * time.Second)
 	defer ticker.Stop()
@@ -207,13 +170,13 @@ func runMonitoringLoop(config Config, count int, fanCounts []int, prevTemps []in
 
 			device, ret := nvml.DeviceGetHandleByIndex(i)
 			if ret != nvml.SUCCESS {
-				log.Printf("ERROR: Unable to get handle for device %d during update: %v. Skipping cycle for this device.", i, nvml.ErrorString(ret))
+				log.Printf("ERROR: Failed to get handle for device %d: %v. Skipping cycle.", i, nvml.ErrorString(ret))
 				continue
 			}
 
 			temp, ret := nvml.DeviceGetTemperature(device, nvml.TEMPERATURE_GPU)
 			if ret != nvml.SUCCESS {
-				log.Printf("ERROR: Unable to get temperature for device %d: %v. Skipping cycle for this device.", i, nvml.ErrorString(ret))
+				log.Printf("ERROR: Failed to get temperature for device %d: %v. Skipping cycle.", i, nvml.ErrorString(ret))
 				continue
 			}
 			tempInt := int(temp)
@@ -222,18 +185,13 @@ func runMonitoringLoop(config Config, count int, fanCounts []int, prevTemps []in
 				newFanSpeed := getFanSpeedForTemperature(tempInt, prevFanSpeeds[i][fanIdx], config.TemperatureRanges)
 
 				if newFanSpeed != prevFanSpeeds[i][fanIdx] {
-					ret = nvml.DeviceSetFanControlPolicy(device, fanIdx, nvml.FAN_POLICY_MANUAL)
-					if ret != nvml.SUCCESS && ret != nvml.ERROR_NOT_SUPPORTED {
-						log.Printf("ERROR: Unable to set manual fan control policy for GPU %d Fan %d: %v", i, fanIdx, nvml.ErrorString(ret))
-						continue
-					} else if ret == nvml.ERROR_NOT_SUPPORTED {
-						log.Printf("WARN: Manual fan control policy not supported for GPU %d Fan %d. Cannot set speed.", i, fanIdx)
+					if ret := nvml.DeviceSetFanControlPolicy(device, fanIdx, nvml.FAN_POLICY_MANUAL); ret != nvml.SUCCESS && ret != nvml.ERROR_NOT_SUPPORTED {
+						log.Printf("ERROR: Failed to set manual policy for GPU %d Fan %d: %v", i, fanIdx, nvml.ErrorString(ret))
 						continue
 					}
 
-					ret = nvml.DeviceSetFanSpeed_v2(device, fanIdx, newFanSpeed)
-					if ret != nvml.SUCCESS {
-						log.Printf("ERROR: Unable to set fan speed for GPU %d Fan %d to %d%%: %v", i, fanIdx, newFanSpeed, nvml.ErrorString(ret))
+					if ret := nvml.DeviceSetFanSpeed_v2(device, fanIdx, newFanSpeed); ret != nvml.SUCCESS {
+						log.Printf("ERROR: Failed to set speed for GPU %d Fan %d to %d%%: %v", i, fanIdx, newFanSpeed, nvml.ErrorString(ret))
 						continue
 					}
 
@@ -241,7 +199,6 @@ func runMonitoringLoop(config Config, count int, fanCounts []int, prevTemps []in
 					prevFanSpeeds[i][fanIdx] = newFanSpeed
 				}
 			}
-			prevTemps[i] = tempInt
 		}
 	}
 }
@@ -249,23 +206,22 @@ func runMonitoringLoop(config Config, count int, fanCounts []int, prevTemps []in
 func main() {
 	logFile, err := setupLogging("/var/log/nvidia-fan-control.log")
 	if err != nil {
-		log.Printf("FATAL: %v", err)
-		os.Exit(1)
+		log.Fatalf("FATAL: %v", err)
 	}
 	defer logFile.Close()
 
-	config, err := loadConfiguration("config.json")
+	config, err := loadConfig("config.json")
 	if err != nil {
-		log.Fatalf("FATAL: %v", err)
+		log.Fatalf("FATAL: Failed to load config: %v", err)
 	}
 
-	nvmlCleanup, err := initializeNVML()
+	nvmlCleanup, err := initNVML()
 	if err != nil {
 		log.Fatalf("FATAL: %v", err)
 	}
 	defer nvmlCleanup()
 
-	count, fanCounts, prevTemps, prevFanSpeeds, err := initializeDevices()
+	count, fanCounts, prevFanSpeeds, err := initDevices()
 	if err != nil {
 		log.Fatalf("FATAL: %v", err)
 	}
@@ -283,7 +239,7 @@ func main() {
 		return
 	}
 
-	runMonitoringLoop(config, count, fanCounts, prevTemps, prevFanSpeeds)
+	runMonitoringLoop(config, count, fanCounts, prevFanSpeeds)
 
 	log.Println("INFO: Monitoring loop finished unexpectedly.")
 }
