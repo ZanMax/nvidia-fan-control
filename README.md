@@ -40,7 +40,7 @@ Description=NVIDIA Fan Control Service
 After=sysinit.target
 
 [Service]
-ExecStart=/usr/bin/sudo /path/to/nvidia_fan_control
+ExecStart=/usr/bin/sudo /path/to/nvidia-fan-control
 WorkingDirectory=/path/to/your/config
 StandardOutput=file:/var/log/nvidia-fan-control.log
 StandardError=inherit
