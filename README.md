@@ -8,12 +8,7 @@ A lightweight Linux utility for monitoring GPU temperatures and dynamically cont
 
 ## Build
 ```bash
-go build -o nvidia_fan_control
-```
-
-## Installation
-```bash
-sudo mv nvidia_fan_control /usr/local/bin/
+go build -o nvidia-fan-control
 ```
 
 ## Configuration

@@ -39,16 +39,40 @@ func abs(x int) int {
 	return x
 }
 
-func getFanSpeedForTemperature(temp, prevTemp, prevSpeed int, ranges []TemperatureRange) int {
+func getFanSpeedForTemperature(temp int, prevSpeed int, ranges []TemperatureRange) int {
+	idealSpeed := prevSpeed
+
 	for _, r := range ranges {
 		if temp > r.MinTemperature && temp <= r.MaxTemperature {
-			if abs(temp-prevTemp) >= r.Hysteresis || prevSpeed != r.FanSpeed {
-				return r.FanSpeed
-			} else {
-				return prevSpeed
-			}
+			idealSpeed = r.FanSpeed
+			break
 		}
 	}
+
+	if idealSpeed > prevSpeed {
+		return idealSpeed
+	}
+
+	if idealSpeed < prevSpeed {
+		var prevRange TemperatureRange
+		for _, r := range ranges {
+			if r.FanSpeed == prevSpeed {
+				prevRange = r
+				break
+			}
+		}
+
+		if prevRange.FanSpeed == -1 {
+			return idealSpeed
+		}
+
+		if temp <= prevRange.MinTemperature-prevRange.Hysteresis {
+			return idealSpeed
+		}
+
+		return prevSpeed
+	}
+
 	return prevSpeed
 }
 
@@ -59,7 +83,6 @@ func setupLogging(logFilePath string) (*os.File, error) {
 	}
 	log.SetOutput(logFile)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Println("INFO: Logging setup complete.")
 	return logFile, nil
 }
 
@@ -73,7 +96,7 @@ func loadConfiguration(configPath string) (Config, error) {
 		log.Printf("WARN: time_to_update (%d) is invalid, defaulting to 5 seconds.", config.TimeToUpdate)
 		config.TimeToUpdate = 5
 	}
-	log.Println("INFO: Configuration loaded and validated.")
+	log.Println("INFO: Configuration loaded.")
 	return config, nil
 }
 
@@ -93,7 +116,6 @@ func initializeNVML() (cleanupFunc func(), err error) {
 		}
 	}
 
-	log.Println("INFO: NVML initialized successfully.")
 	return cleanupFunc, nil
 }
 
@@ -197,7 +219,7 @@ func runMonitoringLoop(config Config, count int, fanCounts []int, prevTemps []in
 			tempInt := int(temp)
 
 			for fanIdx := 0; fanIdx < fanCounts[i]; fanIdx++ {
-				newFanSpeed := getFanSpeedForTemperature(tempInt, prevTemps[i], prevFanSpeeds[i][fanIdx], config.TemperatureRanges)
+				newFanSpeed := getFanSpeedForTemperature(tempInt, prevFanSpeeds[i][fanIdx], config.TemperatureRanges)
 
 				if newFanSpeed != prevFanSpeeds[i][fanIdx] {
 					ret = nvml.DeviceSetFanControlPolicy(device, fanIdx, nvml.FAN_POLICY_MANUAL)
@@ -225,7 +247,7 @@ func runMonitoringLoop(config Config, count int, fanCounts []int, prevTemps []in
 }
 
 func main() {
-	logFile, err := setupLogging("/var/log/nvidia_fan_control.log")
+	logFile, err := setupLogging("/var/log/nvidia-fan-control.log")
 	if err != nil {
 		log.Printf("FATAL: %v", err)
 		os.Exit(1)
