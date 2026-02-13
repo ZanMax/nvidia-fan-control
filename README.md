@@ -31,6 +31,12 @@ edit the file `config.json` with the following structure
   }
 ```
 
+#### Zero fan speed
+If you set `fan_speed` to 0, the program will hand control back to the NVIDIA driver's automatic fan control policy - effectively disables this program in defined temperature range. 
+
+This is useful for turning off the fan, which is not allowed by driver when the fan is controlled by external program such as this one. It will only work on cards that support turning off the fan completely. 
+
+
 ## Service
 ```bash
 sudo nano /etc/systemd/system/nvidia_fan_control.service

@@ -368,22 +368,34 @@ func processDevices(config Config, count int, fanCounts []int, prevFanSpeeds [][
 			newFanSpeed := getFanSpeedForTemperature(tempInt, prevFanSpeeds[i][fanIdx], config.TemperatureRanges)
 
 			if forceUpdate || newFanSpeed != prevFanSpeeds[i][fanIdx] {
-				ret = nvml.DeviceSetFanControlPolicy(device, fanIdx, nvml.FAN_POLICY_MANUAL)
-				if ret != nvml.SUCCESS && ret != nvml.ERROR_NOT_SUPPORTED {
-					log.Printf("ERROR: Unable to set manual fan control policy for GPU %d Fan %d: %v", i, fanIdx, nvml.ErrorString(ret))
-					continue
-				} else if ret == nvml.ERROR_NOT_SUPPORTED {
-					log.Printf("WARN: Manual fan control policy not supported for GPU %d Fan %d. Cannot set speed.", i, fanIdx)
-					continue
-				}
+				if newFanSpeed == 0 {
+					// To allow fan speed to drop to 0 (or below the manual 30% safety limit),
+					// we hand control back to the driver policy.
+					ret = nvml.DeviceSetFanControlPolicy(device, fanIdx, nvml.FAN_POLICY_TEMPERATURE_CONTINOUS_SW)
+					if ret != nvml.SUCCESS {
+						log.Printf("ERROR: Unable to return GPU %d Fan %d to automatic control: %v", i, fanIdx, nvml.ErrorString(ret))
+						continue
+					}
+				} else {
+					// Set to manual for any non-zero value
+					ret = nvml.DeviceSetFanControlPolicy(device, fanIdx, nvml.FAN_POLICY_MANUAL)
+					if ret != nvml.SUCCESS {
+						if ret == nvml.ERROR_NOT_SUPPORTED {
+							log.Printf("WARN: Manual fan control policy not supported for GPU %d Fan %d.", i, fanIdx)
+						} else {
+							log.Printf("ERROR: Unable to set manual fan control policy for GPU %d Fan %d: %v", i, fanIdx, nvml.ErrorString(ret))
+						}
+						continue
+					}
 
-				ret = nvml.DeviceSetFanSpeed_v2(device, fanIdx, newFanSpeed)
-				if ret != nvml.SUCCESS {
-					log.Printf("ERROR: Unable to set fan speed for GPU %d Fan %d to %d%%: %v", i, fanIdx, newFanSpeed, nvml.ErrorString(ret))
-					continue
+					ret = nvml.DeviceSetFanSpeed_v2(device, fanIdx, newFanSpeed)
+					if ret != nvml.SUCCESS {
+						log.Printf("ERROR: Unable to set fan speed for GPU %d Fan %d to %d%%: %v", i, fanIdx, newFanSpeed, nvml.ErrorString(ret))
+						continue
+					}
+					log.Printf("INFO: Updated GPU %d Fan %d: Temp=%d°C, PrevSpeed=%d%%, NewSpeed=%d%%", i, fanIdx, tempInt, prevFanSpeeds[i][fanIdx], newFanSpeed)
 				}
-
-				log.Printf("INFO: Updated GPU %d Fan %d: Temp=%d°C, PrevSpeed=%d%%, NewSpeed=%d%%", i, fanIdx, tempInt, prevFanSpeeds[i][fanIdx], newFanSpeed)
+				
 				prevFanSpeeds[i][fanIdx] = newFanSpeed
 			}
 		}
